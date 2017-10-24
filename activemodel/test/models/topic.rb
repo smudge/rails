@@ -8,13 +8,14 @@ class Topic
     super | [ :message ]
   end
 
-  attr_accessor :title, :author_name, :content, :approved, :created_at
+  attr_accessor :title, :author_name, :content, :approved, :approved_before_type_cast, :created_at
   attr_accessor :after_validation_performed
 
   after_validation :perform_after_validation
 
   def initialize(attributes = {})
     attributes.each do |key, value|
+      send "#{key}_before_type_cast=", value if respond_to?("#{key}_before_type_cast=")
       send "#{key}=", value
     end
   end

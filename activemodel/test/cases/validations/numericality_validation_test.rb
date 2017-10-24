@@ -271,6 +271,21 @@ class NumericalityValidationTest < ActiveModel::TestCase
     assert topic.invalid?
   end
 
+  def test_validates_numericality_with_non_comparable_type_cast_attribute
+    Topic.validates_numericality_of :approved, greater_than: 42
+    whiny_type = Struct.new(nil) do
+      def ==(value)
+        raise ArgumentError, "value after type cast does not support #== comparison"
+      end
+    end
+
+    topic = Topic.new
+    topic.approved = whiny_type.new
+    topic.approved_before_type_cast = 41
+
+    assert topic.invalid?, "must be greater than 42"
+  end
+
   def test_validates_numericality_with_invalid_args
     assert_raise(ArgumentError) { Topic.validates_numericality_of :approved, greater_than_or_equal_to: "foo" }
     assert_raise(ArgumentError) { Topic.validates_numericality_of :approved, less_than_or_equal_to: "foo" }
