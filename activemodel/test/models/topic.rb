@@ -15,7 +15,6 @@ class Topic
 
   def initialize(attributes = {})
     attributes.each do |key, value|
-      send "#{key}_before_type_cast=", value if respond_to?("#{key}_before_type_cast=")
       send "#{key}=", value
     end
   end
