@@ -111,6 +111,16 @@ class PostgresqlEnumTest < ActiveRecord::PostgreSQLTestCase
     assert_includes output, 't.enum "good_mood", default: "happy", null: false, enum_type: "mood"'
   end
 
+  def test_schema_dump_with_dot_in_enum_name
+    @connection.create_enum('"my.mood"', ["sad", "ok", "happy"])
+    @connection.add_column "postgresql_enums", "good_mood", '"my.mood"', default: "happy", null: false
+
+    output = dump_table_schema("postgresql_enums")
+
+    assert_includes output, 'create_enum "\\"my.mood\\"", ["sad", "ok", "happy"]'
+    assert_includes output, 't.enum "good_mood", default: "happy", null: false, enum_type: "\\"my.mood\\""'
+  end
+
   def test_schema_dump_renamed_enum
     @connection.rename_enum :mood, to: :feeling
 
@@ -213,12 +223,42 @@ class PostgresqlEnumTest < ActiveRecord::PostgreSQLTestCase
 
     assert @connection.table_exists?("test_schema.postgresql_enums_in_other_schema")
 
+    with_test_schema("public,test_schema") do
+      output = dump_table_schema("postgresql_enums_in_other_schema")
+      assert_includes output, 'create_enum "test_schema.mood_in_other_schema", ["sad", "ok", "happy"]'
+      assert_includes output, 't.enum "current_mood", enum_type: "test_schema.mood_in_other_schema"'
+    end
+
     assert_nothing_raised do
       @connection.drop_table("test_schema.postgresql_enums_in_other_schema")
       @connection.drop_enum("test_schema.mood_in_other_schema")
     end
   ensure
     @connection.drop_schema("test_schema", if_exists: true)
+  end
+
+  def test_enum_type_explicit_schema_with_dot_in_schema_name
+    @connection.create_schema("test.schema")
+    @connection.create_enum('"test.schema".mood_in_other_schema', ["sad", "ok", "happy"])
+
+    @connection.create_table('"test.schema".postgresql_enums_in_other_schema') do |t|
+      t.column :current_mood, '"test.schema".mood_in_other_schema'
+    end
+
+    assert @connection.table_exists?('"test.schema".postgresql_enums_in_other_schema')
+
+    with_test_schema('public,"test.schema"') do
+      output = dump_table_schema("postgresql_enums_in_other_schema")
+      assert_includes output, 'create_enum "\\"test.schema\\".mood_in_other_schema", ["sad", "ok", "happy"]'
+      assert_includes output, 't.enum "current_mood", enum_type: "\\"test.schema\\".mood_in_other_schema"'
+    end
+
+    assert_nothing_raised do
+      @connection.drop_table('"test.schema".postgresql_enums_in_other_schema')
+      @connection.drop_enum('"test.schema".mood_in_other_schema')
+    end
+  ensure
+    @connection.drop_schema('"test.schema"', if_exists: true)
   end
 
   def test_schema_dump_scoped_to_schemas

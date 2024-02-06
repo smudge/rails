@@ -491,7 +491,13 @@ module ActiveRecord
       def enum_types
         query = <<~SQL
           SELECT
-            type.typname AS name,
+            (
+              CASE
+                WHEN n.nspname = current_schema()
+                THEN quote_ident(type.typname)
+                ELSE concat_ws('.', quote_ident(n.nspname), quote_ident(type.typname))
+              END
+            ) AS name,
             type.OID AS oid,
             n.nspname AS schema,
             string_agg(enum.enumlabel, ',' ORDER BY enum.enumsortorder) AS value
@@ -503,10 +509,7 @@ module ActiveRecord
         SQL
 
         internal_exec_query(query, "SCHEMA", allow_retry: true, materialize_transactions: false).cast_values.each_with_object({}) do |row, memo|
-          name, schema = row[0], row[2]
-          schema = nil if schema == current_schema
-          full_name = [schema, name].compact.join(".")
-          memo[full_name] = row.last
+          memo[row.first] = row.last
         end.to_a
       end
 
@@ -1065,7 +1068,14 @@ module ActiveRecord
         #  - ::regclass is a function that gives the id for a table name
         def column_definitions(table_name)
           query(<<~SQL, "SCHEMA")
-              SELECT a.attname, format_type(a.atttypid, a.atttypmod),
+              SELECT a.attname,
+                     (
+                       CASE
+                         WHEN t.typtype != 'e' OR n.nspname = current_schema() OR n.nspname = 'pg_catalog'
+                         THEN format_type(a.atttypid, a.atttypmod)
+                         ELSE concat_ws('.', quote_ident(n.nspname), format_type(a.atttypid, a.atttypmod))
+                       END
+                     ),
                      pg_get_expr(d.adbin, d.adrelid), a.attnotnull, a.atttypid, a.atttypmod,
                      c.collname, col_description(a.attrelid, a.attnum) AS comment,
                      #{supports_identity_columns? ? 'attidentity' : quote('')} AS identity,
@@ -1074,6 +1084,7 @@ module ActiveRecord
                 LEFT JOIN pg_attrdef d ON a.attrelid = d.adrelid AND a.attnum = d.adnum
                 LEFT JOIN pg_type t ON a.atttypid = t.oid
                 LEFT JOIN pg_collation c ON a.attcollation = c.oid AND a.attcollation <> t.typcollation
+                LEFT JOIN pg_namespace n ON n.oid = t.typnamespace
                WHERE a.attrelid = #{quote(quote_table_name(table_name))}::regclass
                  AND a.attnum > 0 AND NOT a.attisdropped
                ORDER BY a.attnum
